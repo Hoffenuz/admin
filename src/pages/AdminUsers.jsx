@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient.jsx";
 import { useAuth } from "../AuthContext.jsx";
 import { Navigate } from "react-router-dom";
+import { formatDate, toInputDateFormat, fromInputDateFormat, isValidDisplayDate, displayToIso } from "../utils/dateUtils.js";
 
 // Phone formatting functions
 function formatPhoneNumber(value) {
@@ -91,19 +92,15 @@ function AdminUsers() {
       alert("Barcha maydonlarni to'ldiring!");
       return;
     }
-
-    if (!validatePhoneNumber(newUser.phone)) {
-      alert("Telefon raqamini to'g'ri kiriting!");
+    if (!isValidDisplayDate(newUser.birth_date)) {
+      alert("Sana to‘liq va to‘g‘ri formatda kiritilishi kerak: dd/mm/yyyy");
       return;
     }
     
     try {
-      const userData = {
-        ...newUser,
-        phone: getFullPhoneNumber(newUser.phone)
-      };
+      const userToSave = { ...newUser, birth_date: displayToIso(newUser.birth_date) };
       
-      const { error } = await supabase.from("users").insert([userData]);
+      const { error } = await supabase.from("users").insert([userToSave]);
       if (!error) {
         setNewUser({ fio: "", phone: "", passport: "", birth_date: "", category: "B" });
         setPhoneError("");
@@ -207,12 +204,19 @@ function AdminUsers() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-secondary-700 mb-2">Tug'ilgan sana</label>
+                    <label className="block text-sm font-medium text-secondary-700 mb-2">Tug'ilgan sana (dd/mm/yyyy)</label>
                     <input 
-                      type="date"
-                      value={newUser.birth_date} 
-                      onChange={e => setNewUser(u => ({ ...u, birth_date: e.target.value }))}
+                      type="text"
+                      placeholder="dd/mm/yyyy"
+                      value={newUser.birth_date}
+                      onChange={e => {
+                        let val = e.target.value.replace(/[^0-9]/g, '').slice(0, 8);
+                        if (val.length > 4) val = val.replace(/(\d{2})(\d{2})(\d{0,4})/, '$1/$2/$3');
+                        else if (val.length > 2) val = val.replace(/(\d{2})(\d{0,2})/, '$1/$2');
+                        setNewUser(u => ({ ...u, birth_date: val }));
+                      }}
                       className="input-field"
+                      maxLength={10}
                     />
                   </div>
                   <div>
@@ -261,7 +265,7 @@ function AdminUsers() {
                         <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">FIO</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Telefon</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Passport</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Tug'ilgan sana</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Tug'ilgan sana (dd-mm-yyyy)</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Kategoriya</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Amallar</th>
                       </tr>
@@ -281,7 +285,7 @@ function AdminUsers() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">{u.phone}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">{u.passport}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">{new Date(u.birth_date).toLocaleDateString()}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">{formatDate(u.birth_date)}</td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                               u.category === 'A' ? 'bg-warning-100 text-warning-800' :

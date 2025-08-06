@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { motion } from "framer-motion";
 import { supabase } from "../supabaseClient.jsx";
+import { useAuth } from "../AuthContext.jsx";
+import { Navigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { formatDateTime } from "../utils/dateUtils.js";
 
 function AdminSorovlar() {
   const [sorovlar, setSorovlar] = useState([]);
@@ -70,13 +73,7 @@ function AdminSorovlar() {
   }
 
   function formatDate(dateString) {
-    return new Date(dateString).toLocaleDateString('uz-UZ', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatDateTime(dateString);
   }
 
   if (loading) {

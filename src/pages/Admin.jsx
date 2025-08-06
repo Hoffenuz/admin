@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient.jsx";
 import { useAuth } from "../AuthContext.jsx";
+import { formatDate, toInputDateFormat, fromInputDateFormat, isValidDisplayDate, displayToIso } from "../utils/dateUtils.js";
 
 function Admin() {
   const { user, isAdmin } = useAuth();
@@ -58,9 +59,16 @@ function Admin() {
       alert("Barcha maydonlarni to'ldiring!");
       return;
     }
+    if (!isValidDisplayDate(newUser.birth_date)) {
+      alert("Sana to‘liq va to‘g‘ri formatda kiritilishi kerak: dd/mm/yyyy");
+      return;
+    }
+    
+    // Convert to ISO before sending to backend
+    const userToSave = { ...newUser, birth_date: displayToIso(newUser.birth_date) };
     
     try {
-      const { error } = await supabase.from("users").insert([newUser]);
+      const { error } = await supabase.from("users").insert([userToSave]);
       if (!error) {
         setNewUser({ fio: "", phone: "", passport: "", birth_date: "", category: "B" });
         fetchUsers();
@@ -269,47 +277,70 @@ function Admin() {
                 <div className="mb-8">
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Yangi o'quvchi qo'shish</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <input 
-                      placeholder="FIO" 
-                      value={newUser.fio} 
-                      onChange={e => setNewUser(u => ({ ...u, fio: e.target.value }))}
-                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <input 
-                      placeholder="Telefon" 
-                      value={newUser.phone} 
-                      onChange={e => setNewUser(u => ({ ...u, phone: e.target.value }))}
-                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <input 
-                      placeholder="Passport (AB1234567)" 
-                      value={newUser.passport} 
-                      onChange={e => setNewUser(u => ({ ...u, passport: e.target.value }))}
-                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <input 
-                      type="date"
-                      placeholder="Tug'ilgan sana" 
-                      value={newUser.birth_date} 
-                      onChange={e => setNewUser(u => ({ ...u, birth_date: e.target.value }))}
-                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <select 
-                      value={newUser.category} 
-                      onChange={e => setNewUser(u => ({ ...u, category: e.target.value }))}
-                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="A">A - Mototsikl</option>
-                      <option value="B">B - Avtomobil</option>
-                      <option value="C">C - Yuk avtomobili</option>
-                      <option value="BC">BC - Avtomobil va yuk avtomobili</option>
-                    </select>
-                    <button 
-                      onClick={addUser}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      Qo'shish
-                    </button>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">FIO</label>
+                      <input 
+                        placeholder="Familiya va ism" 
+                        value={newUser.fio} 
+                        onChange={e => setNewUser(u => ({ ...u, fio: e.target.value }))}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Telefon</label>
+                      <input 
+                        placeholder="+998 XX XXX XX XX" 
+                        value={newUser.phone} 
+                        onChange={e => setNewUser(u => ({ ...u, phone: e.target.value }))}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Passport</label>
+                      <input 
+                        placeholder="AB1234567" 
+                        value={newUser.passport} 
+                        onChange={e => setNewUser(u => ({ ...u, passport: e.target.value }))}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Tug'ilgan sana (dd/mm/yyyy)</label>
+                      <input 
+                        type="text"
+                        placeholder="dd/mm/yyyy"
+                        value={newUser.birth_date}
+                        onChange={e => {
+                          let val = e.target.value.replace(/[^0-9]/g, '').slice(0, 8);
+                          if (val.length > 4) val = val.replace(/(\d{2})(\d{2})(\d{0,4})/, '$1/$2/$3');
+                          else if (val.length > 2) val = val.replace(/(\d{2})(\d{0,2})/, '$1/$2');
+                          setNewUser(u => ({ ...u, birth_date: val }));
+                        }}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        maxLength={10}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Kategoriya</label>
+                      <select 
+                        value={newUser.category} 
+                        onChange={e => setNewUser(u => ({ ...u, category: e.target.value }))}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="A">A - Mototsikl</option>
+                        <option value="B">B - Avtomobil</option>
+                        <option value="C">C - Yuk avtomobili</option>
+                        <option value="BC">BC - Avtomobil va yuk avtomobili</option>
+                      </select>
+                    </div>
+                    <div className="flex items-end">
+                      <button 
+                        onClick={addUser}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
+                      >
+                        Qo'shish
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -322,7 +353,7 @@ function Admin() {
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">FIO</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Telefon</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Passport</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tug'ilgan sana</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tug'ilgan sana (dd-mm-yyyy)</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kategoriya</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amallar</th>
                         </tr>
@@ -333,7 +364,7 @@ function Admin() {
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{u.fio}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{u.phone}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{u.passport}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(u.birth_date).toLocaleDateString()}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(u.birth_date)}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{u.category}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                               <button 
@@ -458,33 +489,45 @@ function Admin() {
                 <div className="mb-8">
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Yangi darslik qo'shish</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <input 
-                      placeholder="Sarlavha" 
-                      value={newDarslik.title} 
-                      onChange={e => setNewDarslik(d => ({ ...d, title: e.target.value }))}
-                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <input 
-                      placeholder="Video URL (YouTube)" 
-                      value={newDarslik.video_url} 
-                      onChange={e => setNewDarslik(d => ({ ...d, video_url: e.target.value }))}
-                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <input 
-                      type="number"
-                      placeholder="Tartib raqami" 
-                      value={newDarslik.order_number} 
-                      onChange={e => setNewDarslik(d => ({ ...d, order_number: parseInt(e.target.value) || 1 }))}
-                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <button 
-                      onClick={addDarslik}
-                      className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    >
-                      Darslik qo'shish
-                    </button>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Sarlavha</label>
+                      <input 
+                        placeholder="Sarlavha" 
+                        value={newDarslik.title} 
+                        onChange={e => setNewDarslik(d => ({ ...d, title: e.target.value }))}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Video URL (YouTube)</label>
+                      <input 
+                        placeholder="Video URL (YouTube)" 
+                        value={newDarslik.video_url} 
+                        onChange={e => setNewDarslik(d => ({ ...d, video_url: e.target.value }))}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Tartib raqami</label>
+                      <input 
+                        type="number"
+                        placeholder="Tartib raqami" 
+                        value={newDarslik.order_number} 
+                        onChange={e => setNewDarslik(d => ({ ...d, order_number: parseInt(e.target.value) || 1 }))}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <button 
+                        onClick={addDarslik}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 w-full"
+                      >
+                        Darslik qo'shish
+                      </button>
+                    </div>
                   </div>
                   <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Darslik tavsifi (ixtiyoriy)</label>
                     <textarea
                       placeholder="Darslik tavsifi (ixtiyoriy)"
                       value={newDarslik.description}

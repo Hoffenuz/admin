@@ -7,6 +7,8 @@ import { formatDateTime } from "../utils/dateUtils.js";
 
 function AdminSorovlar() {
   const [sorovlar, setSorovlar] = useState([]);
+  const [filteredSorovlar, setFilteredSorovlar] = useState([]);
+  const [sorovSearchTerm, setSorovSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -39,6 +41,7 @@ function AdminSorovlar() {
       if (error) throw error;
 
       setSorovlar(data || []);
+      setFilteredSorovlar(data || []);
     } catch (error) {
       console.error("So'rovlarni yuklashda xatolik:", error);
       if (showLoading) {
@@ -49,6 +52,22 @@ function AdminSorovlar() {
         setLoading(false);
       }
     }
+  }
+
+  function filterSorovlar(searchTerm) {
+    setSorovSearchTerm(searchTerm);
+    if (!searchTerm.trim()) {
+      setFilteredSorovlar(sorovlar);
+      return;
+    }
+    const filtered = sorovlar.filter(sorov =>
+      sorov.ism?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      sorov.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      sorov.telefon?.includes(searchTerm) ||
+      sorov.xabar?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      formatDate(sorov.created_at)?.includes(searchTerm)
+    );
+    setFilteredSorovlar(filtered);
   }
 
   async function deleteSorov(id) {
@@ -126,7 +145,7 @@ function AdminSorovlar() {
                 <svg className="w-5 h-5 text-warning-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
-                So'rovlar ro'yxati ({sorovlar.length})
+                So'rovlar ro'yxati ({filteredSorovlar.length})
                 <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                   <svg className="w-3 h-3 mr-1 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -134,17 +153,26 @@ function AdminSorovlar() {
                   Avtomatik
                 </span>
               </h2>
-              <button
-                onClick={() => fetchSorovlar(true)}
-                className="btn-secondary"
-              >
-                <div className="flex items-center space-x-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  <span>Qayta yuklash</span>
-                </div>
-              </button>
+              <div className="flex items-center space-x-4">
+                <input
+                  type="text"
+                  placeholder="So'rovlarni qidirish..."
+                  value={sorovSearchTerm}
+                  onChange={e => filterSorovlar(e.target.value)}
+                  className="px-3 py-2 border border-secondary-300 rounded-md focus:outline-none focus:ring-2 focus:ring-warning-500 w-64"
+                />
+                <button
+                  onClick={() => fetchSorovlar(true)}
+                  className="btn-secondary"
+                >
+                  <div className="flex items-center space-x-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Qayta yuklash</span>
+                  </div>
+                </button>
+              </div>
             </div>
 
             {sorovlar.length === 0 ? (
@@ -163,7 +191,7 @@ function AdminSorovlar() {
               </motion.div>
             ) : (
               <div className="space-y-6">
-                {sorovlar.map((sorov, index) => (
+                {filteredSorovlar.map((sorov, index) => (
                   <motion.div
                     key={sorov.id}
                     initial={{ opacity: 0, y: 20 }}

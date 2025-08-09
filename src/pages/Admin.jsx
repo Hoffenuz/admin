@@ -1,24 +1,58 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient.jsx";
 import { useAuth } from "../AuthContext.jsx";
-import { formatDate, toInputDateFormat, fromInputDateFormat, isValidDisplayDate, displayToIso } from "../utils/dateUtils.js";
+import { formatDate, toInputDateFormat, fromInputDateFormat, isValidDisplayDate, displayToIso, formatDateTime } from "../utils/dateUtils.js";
 
 function Admin() {
   const { user, isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState('users');
+  const [activeTab, setActiveTab] = useState('sorovlar');
+  const [isArchiveOpen, setIsArchiveOpen] = useState(false);
+  const [archived, setArchived] = useState([]);
+  const [archivedFiltered, setArchivedFiltered] = useState([]);
+  const [archiveSearch, setArchiveSearch] = useState('');
 
   // Users state
   const [users, setUsers] = useState([]);
+  const [filteredUsers, setFilteredUsers] = useState([]);
+  const [userSearchTerm, setUserSearchTerm] = useState('');
   const [newUser, setNewUser] = useState({ 
     fio: "", 
     phone: "", 
     passport: "", 
     birth_date: "", 
-    category: "B" 
+    category: "B",
+    entry_date: "",
+    exit_date: "",
+    total_fee: 0,
+    paid_fee: 0,
+    remaining_fee: 0,
+    user_number: 1
   });
+  const [detailUser, setDetailUser] = useState(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [editUser, setEditUser] = useState(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+
+  // Format number with spaces every 3 digits
+  function formatNumber(num) {
+    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  }
+
+  // So'rovlar state
+  const [sorovlar, setSorovlar] = useState([]);
+  const [filteredSorovlar, setFilteredSorovlar] = useState([]);
+  const [sorovSearchTerm, setSorovSearchTerm] = useState('');
+
+  // To'lovlar tarixi state
+  const [payments, setPayments] = useState([]);
+  const [filteredPayments, setFilteredPayments] = useState([]);
+  const [paymentSearch, setPaymentSearch] = useState('');
+  const [paymentsError, setPaymentsError] = useState("");
 
   // Tests state
   const [tests, setTests] = useState([]);
+  const [filteredTests, setFilteredTests] = useState([]);
+  const [testSearchTerm, setTestSearchTerm] = useState('');
   const [newTest, setNewTest] = useState({
     question_text: "",
     image_url: ""
@@ -33,6 +67,8 @@ function Admin() {
 
   // Darsliklar state
   const [darsliklar, setDarsliklar] = useState([]);
+  const [filteredDarsliklar, setFilteredDarsliklar] = useState([]);
+  const [darslikSearchTerm, setDarslikSearchTerm] = useState('');
   const [newDarslik, setNewDarslik] = useState({
     title: "",
     description: "",
@@ -42,9 +78,13 @@ function Admin() {
 
   useEffect(() => {
     if (isAdmin) {
+      // Users are managed on a separate page now
       fetchUsers();
+      fetchSorovlar();
       fetchTests();
       fetchDarsliklar();
+      fetchArchived();
+      fetchPayments();
     }
   }, [isAdmin]);
 
@@ -52,6 +92,102 @@ function Admin() {
   async function fetchUsers() {
     let { data } = await supabase.from("users").select("*");
     setUsers(data || []);
+    setFilteredUsers(data || []);
+  }
+
+  // So'rovlar CRUD
+  async function fetchSorovlar() {
+    let { data } = await supabase
+      .from("aloqa")
+      .select("*")
+      .order("created_at", { ascending: false });
+    setSorovlar(data || []);
+    setFilteredSorovlar(data || []);
+  }
+
+  function filterSorovlar(searchTerm) {
+    setSorovSearchTerm(searchTerm);
+    if (!searchTerm.trim()) {
+      setFilteredSorovlar(sorovlar);
+      return;
+    }
+    const t = searchTerm.toLowerCase();
+    const filtered = sorovlar.filter(sorov =>
+      sorov.ism?.toLowerCase().includes(t) ||
+      sorov.email?.toLowerCase().includes(t) ||
+      sorov.telefon?.includes(searchTerm) ||
+      sorov.xabar?.toLowerCase().includes(t) ||
+      formatDateTime(sorov.created_at)?.toLowerCase().includes(t)
+    );
+    setFilteredSorovlar(filtered);
+  }
+
+  async function deleteSorov(id) {
+    if (!window.confirm("Bu so'rovni o'chirishni xohlaysizmi?")) return;
+    const { error } = await supabase.from("aloqa").delete().eq("id", id);
+    if (error) {
+      alert("Xatolik: " + error.message);
+      return;
+    }
+    setSorovlar(prev => prev.filter(s => s.id !== id));
+    setFilteredSorovlar(prev => prev.filter(s => s.id !== id));
+  }
+
+  // Payments CRUD
+  async function fetchPayments() {
+    setPaymentsError("");
+    try {
+      const { data, error } = await supabase
+        .from('payments')
+        .select('*')
+        .order('payment_date', { ascending: false });
+      if (error) throw error;
+      setPayments(data || []);
+      setFilteredPayments(data || []);
+    } catch (e) {
+      console.error('Payments fetch error:', e);
+      setPayments([]);
+      setFilteredPayments([]);
+      setPaymentsError("To'lovlar tarixi uchun 'payments' jadvali topilmadi yoki xatolik yuz berdi. Agar tarixni ko'rishni istasangiz, jadvalni yarating.");
+    }
+  }
+
+  function filterPayments(term) {
+    setPaymentSearch(term);
+    if (!term.trim()) { setFilteredPayments(payments); return; }
+    const t = term.toLowerCase();
+    const filtered = payments.filter(p => {
+      const u = users.find(x => x.id === p.user_id);
+      const fio = u?.fio?.toLowerCase() || '';
+      const phone = u?.phone || '';
+      const dateStr = formatDateTime(p.payment_date)?.toLowerCase() || '';
+      const amountStr = String(p.amount || '').toLowerCase();
+      return fio.includes(t) || phone.includes(term) || dateStr.includes(t) || amountStr.includes(t);
+    });
+    setFilteredPayments(filtered);
+  }
+
+  // Search functions
+  function filterUsers(searchTerm) {
+    setUserSearchTerm(searchTerm);
+    if (!searchTerm.trim()) {
+      setFilteredUsers(users);
+      return;
+    }
+    const filtered = users.filter(user =>
+      user.fio?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.phone?.includes(searchTerm) ||
+      user.passport?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      formatDate(user.birth_date)?.includes(searchTerm) ||
+      formatDate(user.entry_date)?.includes(searchTerm) ||
+      formatDate(user.exit_date)?.includes(searchTerm) ||
+      user.total_fee?.toString().includes(searchTerm) ||
+      user.paid_fee?.toString().includes(searchTerm) ||
+      user.remaining_fee?.toString().includes(searchTerm) ||
+      user.user_number?.toString().includes(searchTerm)
+    );
+    setFilteredUsers(filtered);
   }
 
   async function addUser() {
@@ -60,17 +196,36 @@ function Admin() {
       return;
     }
     if (!isValidDisplayDate(newUser.birth_date)) {
-      alert("Sana to‘liq va to‘g‘ri formatda kiritilishi kerak: dd/mm/yyyy");
+      alert("Sana to'liq va to'g'ri formatda kiritilishi kerak: dd/mm/yyyy");
       return;
     }
     
+    // remaining_fee GENERATED STORED — yuborilmaydi
+    const { remaining_fee, ...newUserWithoutRemaining } = newUser;
     // Convert to ISO before sending to backend
-    const userToSave = { ...newUser, birth_date: displayToIso(newUser.birth_date) };
+    const userToSave = {
+      ...newUserWithoutRemaining,
+      birth_date: displayToIso(newUser.birth_date),
+      entry_date: newUser.entry_date ? displayToIso(newUser.entry_date) : null,
+      exit_date: newUser.exit_date ? displayToIso(newUser.exit_date) : null
+    };
     
     try {
       const { error } = await supabase.from("users").insert([userToSave]);
       if (!error) {
-        setNewUser({ fio: "", phone: "", passport: "", birth_date: "", category: "B" });
+        setNewUser({ 
+          fio: "", 
+          phone: "", 
+          passport: "", 
+          birth_date: "", 
+          category: "B",
+          entry_date: "",
+          exit_date: "",
+          total_fee: 0,
+          paid_fee: 0,
+          remaining_fee: 0,
+          user_number: 1
+        });
         fetchUsers();
         alert("O'quvchi muvaffaqiyatli qo'shildi!");
       } else {
@@ -78,6 +233,98 @@ function Admin() {
       }
     } catch (error) {
       alert("Xatolik: " + error.message);
+    }
+  }
+
+  function openUserDetail(user) {
+    setDetailUser(user);
+    setIsDetailOpen(true);
+  }
+  function closeUserDetail() {
+    setIsDetailOpen(false);
+    setDetailUser(null);
+  }
+
+  function openEdit(user) {
+    setEditUser({
+      ...user,
+      // format existing ISO dates to display format for inputs
+      birth_date: formatDate(user.birth_date) || "",
+      entry_date: formatDate(user.entry_date) || "",
+      exit_date: formatDate(user.exit_date) || "",
+    });
+    setIsEditOpen(true);
+  }
+
+  function closeEdit() {
+    setIsEditOpen(false);
+    setEditUser(null);
+  }
+
+  async function saveEdit() {
+    if (!editUser) return;
+    if (!editUser.fio || !editUser.phone || !editUser.passport || !editUser.birth_date) {
+      alert("Barcha majburiy maydonlarni to'ldiring!");
+      return;
+    }
+    if (!isValidDisplayDate(editUser.birth_date)) {
+      alert("Tug'ilgan sana to'liq va to'g'ri formatda bo'lishi kerak: dd/mm/yyyy");
+      return;
+    }
+
+    const { remaining_fee, id, ...rest } = editUser;
+    const updatePayload = {
+      ...rest,
+      // convert display dates back to ISO for backend
+      birth_date: displayToIso(editUser.birth_date),
+      entry_date: editUser.entry_date ? displayToIso(editUser.entry_date) : null,
+      exit_date: editUser.exit_date ? displayToIso(editUser.exit_date) : null,
+      // ensure numbers are numbers
+      total_fee: parseInt(editUser.total_fee) || 0,
+      paid_fee: parseInt(editUser.paid_fee) || 0,
+      user_number: parseInt(editUser.user_number) || 1,
+    };
+
+    try {
+      const { error } = await supabase
+        .from("users")
+        .update(updatePayload)
+        .eq("id", id);
+      if (error) {
+        alert("Xatolik: " + error.message);
+        return;
+      }
+      await fetchUsers();
+      closeEdit();
+      alert("O'quvchi ma'lumotlari yangilandi!");
+    } catch (e) {
+      alert("Xatolik: " + e.message);
+    }
+  }
+
+  async function addPayment(user) {
+    const input = window.prompt("To'lov summasini kiriting (so'm):", "0");
+    if (input === null) return;
+    const amount = parseInt(String(input).replace(/[^0-9-]/g, ''), 10);
+    if (Number.isNaN(amount) || amount <= 0) {
+      alert("Ijobiy butun son kiriting");
+      return;
+    }
+    const currentPaid = Number(user.paid_fee || 0);
+    const newPaid = currentPaid + amount;
+    try {
+      const { error } = await supabase
+        .from("users")
+        .update({ paid_fee: newPaid })
+        .eq("id", user.id);
+      if (error) {
+        alert("Xatolik: " + error.message);
+        return;
+      }
+      await fetchUsers();
+      alert("To'lov qo'shildi");
+    } catch (e) {
+      alert("Xatolik: " + e.message);
     }
   }
 
@@ -104,6 +351,21 @@ function Admin() {
     
     let { data: choicesData } = await supabase.from("choices").select("*");
     setChoices(choicesData || []);
+    setFilteredTests(data || []);
+  }
+
+  // Search functions
+  function filterTests(searchTerm) {
+    setTestSearchTerm(searchTerm);
+    if (!searchTerm.trim()) {
+      setFilteredTests(tests);
+      return;
+    }
+    const filtered = tests.filter(test =>
+      test.question_text?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      test.image_url?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    setFilteredTests(filtered);
   }
 
   async function addTest() {
@@ -181,6 +443,23 @@ function Admin() {
   async function fetchDarsliklar() {
     let { data } = await supabase.from("darsliklar").select("*").order("order_number");
     setDarsliklar(data || []);
+    setFilteredDarsliklar(data || []);
+  }
+
+  // Search functions
+  function filterDarsliklar(searchTerm) {
+    setDarslikSearchTerm(searchTerm);
+    if (!searchTerm.trim()) {
+      setFilteredDarsliklar(darsliklar);
+      return;
+    }
+    const filtered = darsliklar.filter(darslik =>
+      darslik.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      darslik.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      darslik.video_url?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      darslik.order_number?.toString().includes(searchTerm)
+    );
+    setFilteredDarsliklar(filtered);
   }
 
   async function addDarslik() {
@@ -211,6 +490,25 @@ function Admin() {
     }
   }
 
+  async function fetchArchived() {
+    let { data } = await supabase.from('users_archive').select('*');
+    setArchived(data || []);
+    setArchivedFiltered(data || []);
+  }
+
+  function filterArchived(term) {
+    setArchiveSearch(term);
+    if (!term.trim()) { setArchivedFiltered(archived); return; }
+    const t = term.toLowerCase();
+    setArchivedFiltered(
+      archived.filter(u =>
+        u.fio?.toLowerCase().includes(t) ||
+        u.phone?.includes(term) ||
+        u.passport?.toLowerCase().includes(t)
+      )
+    );
+  }
+
   function updateChoice(index, field, value) {
     const updated = [...newChoices];
     updated[index] = { ...updated[index], [field]: value };
@@ -238,14 +536,14 @@ function Admin() {
           <div className="border-b border-gray-200">
             <nav className="-mb-px flex space-x-8 px-6">
               <button
-                onClick={() => setActiveTab('users')}
+                onClick={() => setActiveTab('sorovlar')}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'users'
+                  activeTab === 'sorovlar'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                O'quvchilar
+                So'rovlar
               </button>
               <button
                 onClick={() => setActiveTab('tests')}
@@ -267,119 +565,89 @@ function Admin() {
               >
                 Darsliklar
               </button>
+              <button
+                onClick={() => setActiveTab('arxiv')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'arxiv'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Arxiv
+              </button>
+              <button
+                onClick={() => setActiveTab('payments')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'payments'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                To'lovlar tarixi
+              </button>
             </nav>
           </div>
           
           <div className="p-6">
-            {/* Users Tab */}
-            {activeTab === 'users' && (
+            {/* So'rovlar Tab */}
+            {activeTab === 'sorovlar' && (
               <div>
-                <div className="mb-8">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Yangi o'quvchi qo'shish</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">FIO</label>
-                      <input 
-                        placeholder="Familiya va ism" 
-                        value={newUser.fio} 
-                        onChange={e => setNewUser(u => ({ ...u, fio: e.target.value }))}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Telefon</label>
-                      <input 
-                        placeholder="+998 XX XXX XX XX" 
-                        value={newUser.phone} 
-                        onChange={e => setNewUser(u => ({ ...u, phone: e.target.value }))}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Passport</label>
-                      <input 
-                        placeholder="AB1234567" 
-                        value={newUser.passport} 
-                        onChange={e => setNewUser(u => ({ ...u, passport: e.target.value }))}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Tug'ilgan sana (dd/mm/yyyy)</label>
-                      <input 
-                        type="text"
-                        placeholder="dd/mm/yyyy"
-                        value={newUser.birth_date}
-                        onChange={e => {
-                          let val = e.target.value.replace(/[^0-9]/g, '').slice(0, 8);
-                          if (val.length > 4) val = val.replace(/(\d{2})(\d{2})(\d{0,4})/, '$1/$2/$3');
-                          else if (val.length > 2) val = val.replace(/(\d{2})(\d{0,2})/, '$1/$2');
-                          setNewUser(u => ({ ...u, birth_date: val }));
-                        }}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        maxLength={10}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Kategoriya</label>
-                      <select 
-                        value={newUser.category} 
-                        onChange={e => setNewUser(u => ({ ...u, category: e.target.value }))}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="A">A - Mototsikl</option>
-                        <option value="B">B - Avtomobil</option>
-                        <option value="C">C - Yuk avtomobili</option>
-                        <option value="BC">BC - Avtomobil va yuk avtomobili</option>
-                      </select>
-                    </div>
-                    <div className="flex items-end">
-                      <button 
-                        onClick={addUser}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
-                      >
-                        Qo'shish
-                      </button>
-                    </div>
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">So'rovlar ro'yxati</h2>
+                  <div className="mb-4">
+                    <input
+                      type="text"
+                    placeholder="So'rovlarni qidirish..."
+                    value={sorovSearchTerm}
+                    onChange={e => filterSorovlar(e.target.value)}
+                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-full max-w-md"
+                    />
                   </div>
-                </div>
-
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">O'quvchilar ro'yxati</h2>
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">FIO</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ism</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Telefon</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Passport</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tug'ilgan sana (dd-mm-yyyy)</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kategoriya</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sana</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Xabar</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amallar</th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {users.map(u => (
-                          <tr key={u.id}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{u.fio}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{u.phone}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{u.passport}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(u.birth_date)}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{u.category}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                              <button 
-                                onClick={() => deleteUser(u.id)}
+                      {filteredSorovlar.map(s => (
+                        <tr key={s.id}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{s.ism}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">
+                            {s.email ? (
+                              <a href={`mailto:${s.email}`} className="hover:underline">{s.email}</a>
+                            ) : (
+                              <span className="text-gray-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">
+                            {s.telefon ? (
+                              <a href={`tel:${s.telefon}`} className="hover:underline">{s.telefon}</a>
+                            ) : (
+                              <span className="text-gray-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDateTime(s.created_at)}</td>
+                          <td className="px-6 py-4 text-sm text-gray-700 max-w-md truncate">{s.xabar}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                              <button
+                              onClick={() => deleteSorov(s.id)}
                                 className="text-red-600 hover:text-red-900"
+                              title="O'chirish"
                               >
                                 O'chirish
                               </button>
                             </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
               </div>
             )}
 
@@ -448,8 +716,17 @@ function Admin() {
 
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Testlar ro'yxati</h2>
+                  <div className="mb-4">
+                    <input
+                      type="text"
+                      placeholder="Testlarni qidirish..."
+                      value={testSearchTerm}
+                      onChange={e => filterTests(e.target.value)}
+                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-full max-w-md"
+                    />
+                  </div>
                   <div className="space-y-4">
-                    {tests.map(test => {
+                    {filteredTests.map(test => {
                       const testChoices = choices.filter(c => c.question_id === test.id);
                       return (
                         <div key={test.id} className="border border-gray-200 rounded-lg p-4">
@@ -540,6 +817,15 @@ function Admin() {
 
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Darsliklar ro'yxati</h2>
+                  <div className="mb-4">
+                    <input
+                      type="text"
+                      placeholder="Darsliklarni qidirish..."
+                      value={darslikSearchTerm}
+                      onChange={e => filterDarsliklar(e.target.value)}
+                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-full max-w-md"
+                    />
+                  </div>
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
@@ -552,7 +838,7 @@ function Admin() {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {darsliklar.map(d => (
+                        {filteredDarsliklar.map(d => (
                           <tr key={d.id}>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{d.order_number}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{d.title}</td>
@@ -575,6 +861,126 @@ function Admin() {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Arxiv Tab */}
+            {activeTab === 'arxiv' && (
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Arxiv</h2>
+                <div className="mb-4">
+                  <input
+                    type="text"
+                    placeholder="Arxivdan qidirish..."
+                    value={archiveSearch}
+                    onChange={e => filterArchived(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-full max-w-md"
+                  />
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">FIO</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Telefon</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tug'ilgan sana</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {archivedFiltered.map((u, idx) => (
+                        <tr key={u.id}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{idx + 1}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{u.fio}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{u.phone}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(u.birth_date)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Payments Tab */}
+            {activeTab === 'payments' && (
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">To'lovlar tarixi</h2>
+                {paymentsError && (
+                  <div className="mb-4 p-3 rounded border border-yellow-300 bg-yellow-50 text-yellow-800 text-sm">
+                    {paymentsError}
+                  </div>
+                )}
+                <div className="mb-4">
+                  <input
+                    type="text"
+                    placeholder="Qidirish (ism, telefon, sana, summa)"
+                    value={paymentSearch}
+                    onChange={e => filterPayments(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-full max-w-md"
+                  />
+                </div>
+                <div className="mb-4">
+                  <button
+                    onClick={() => {
+                      const headers = ['Sana', "O'quvchi", 'Telefon', 'Summa'];
+                      const escapeCell = (v) => {
+                        if (v === null || v === undefined) return '';
+                        const str = String(v);
+                        if (/[",\n]/.test(str)) return '"' + str.replace(/"/g, '""') + '"';
+                        return str;
+                      };
+                      const rows = filteredPayments.map(p => {
+                        const u = users.find(x => x.id === p.user_id);
+                        return [
+                          `'${formatDateTime(p.payment_date) || ''}`,
+                          (u?.fio || `ID: ${p.user_id}`),
+                          (u?.phone ? `'${u.phone}` : ''),
+                          Number(p.amount || 0)
+                        ];
+                      });
+                      const csv = [headers, ...rows].map(r => r.map(escapeCell).join(',')).join('\n');
+                      const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+                      const url = URL.createObjectURL(blob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      const today = new Date().toISOString().slice(0,10);
+                      link.setAttribute('download', `tolovlar_tarixi_${today}.csv`);
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                      URL.revokeObjectURL(url);
+                    }}
+                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm"
+                  >
+                    Excel (CSV)
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sana</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">O'quvchi</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Telefon</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Summa</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {filteredPayments.map(p => {
+                        const u = users.find(x => x.id === p.user_id);
+                        return (
+                          <tr key={p.id}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDateTime(p.payment_date)}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{u?.fio || `ID: ${p.user_id}`}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">{u?.phone || '—'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-green-700">{formatNumber(p.amount || 0)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}

@@ -70,6 +70,42 @@ export function AuthProvider({ children }) {
     return { data };
   }
 
+  // Update admin username/password
+  async function updateAdminCredentials({ newUsername, newPassword, currentPassword }) {
+    if (!user) return { error: "Foydalanuvchi aniqlanmadi" };
+    if (!currentPassword) return { error: "Joriy parolni kiriting" };
+
+    const payload = {};
+    if (newUsername && newUsername !== user.username) payload.username = newUsername;
+    if (newPassword && newPassword.length > 0) payload.password = newPassword;
+
+    if (Object.keys(payload).length === 0) {
+      return { error: "O'zgartirish kiritilmadi" };
+    }
+
+    try {
+      // Update only if current password matches
+      const { data, error } = await supabase
+        .from("admin")
+        .update(payload)
+        .eq("id", user.id)
+        .eq("password", currentPassword)
+        .select()
+        .single();
+
+      if (error) return { error: error.message };
+
+      if (!data) return { error: "Joriy parol noto'g'ri" };
+
+      // Persist new user data
+      localStorage.setItem('adminUser', JSON.stringify(data));
+      setUser(data);
+      return { data };
+    } catch (e) {
+      return { error: e.message };
+    }
+  }
+
   function logout() {
     setUser(null);
     setIsAdmin(false);
@@ -79,7 +115,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, loginAdmin, logout, loading }}>
+    <AuthContext.Provider value={{ user, isAdmin, loginAdmin, logout, loading, updateAdminCredentials }}>
       {children}
     </AuthContext.Provider>
   );
